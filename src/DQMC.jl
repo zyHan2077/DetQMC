@@ -5,6 +5,8 @@ using StableDQMC
 
 # export DQMCScheme, DQMCWalker, initializeWalker, AuxFieldUpdaterParams, walkerMarkovMove!
 
+include("decouplingScheme.jl")
+
 const auxDtype = Int8
 
 const component4AuxField = NTuple{4, auxDtype}((-2, -1, 1, 2))
@@ -32,6 +34,7 @@ mutable struct DQMCWalker{T<:Number}
     UDTsLeft::Array{UDT, 1} # B1, B2B1, ... (BM ⋯ B2 B1)
     counter::Int
     refreshInterval::Int
+    individualWeight::T
 end
 
 #
@@ -47,15 +50,12 @@ struct AuxFieldUpdaterParams{T<:Number}
     end
 end
 
+function auxCalc(s, params::AuxFieldUpdaterParams{T}) where T
+    return sign(s) * params.eta[ abs(s) ]
+end
 
-function decouplingCoefficients_CjWu(U::Float64, Δτ::Float64)
-    a = exp(- U * Δτ / 2.0)
-    a2 = exp(- U * Δτ)
-    d = sqrt( 8 + ( a2*(3 + a2)^2 ) )
-    g = a * (3 + a2) / d
-    e1 = (a * (1 + a2)^2) / 4.0
-    e2 = (a2 - 1) * d / 4
-    return ( (1 - g, 1 + g), (acos(e1 + e2), acos(e1 - e2)) )
+function etaDiffCalc(s1, s2, params::AuxFieldUpdaterParams{T}) where T
+    return (sign(s1) * params.eta[ abs(s1) ] - sign(s2) * params.eta[ abs(s2) ])
 end
 
 function initializeWalker(scheme::DQMCScheme{T}, params::AuxFieldUpdaterParams{T}, refreshInterval) where T
@@ -79,15 +79,7 @@ function initializeWalker(scheme::DQMCScheme{T}, params::AuxFieldUpdaterParams{T
 
     glTemp = inv_one_plus(UDTsRight[1])
 
-    return DQMCWalker{T}(fieldInit, BMats, glTemp, UDTsRight, UDTsLeft, 0, refreshInterval)
-end
-
-function auxCalc(s, params::AuxFieldUpdaterParams{T}) where T
-    return sign(s) * params.eta[ abs(s) ]
-end
-
-function etaDiffCalc(s1, s2, params::AuxFieldUpdaterParams{T}) where T
-    return (sign(s1) * params.eta[ abs(s1) ] - sign(s2) * params.eta[ abs(s2) ])
+    return DQMCWalker{T}(fieldInit, BMats, glTemp, UDTsRight, UDTsLeft, 0, refreshInterval, 1.0)
 end
 
 function BMatGenerator(scheme::DQMCScheme{T}, s::Vector{<:Integer}, params::AuxFieldUpdaterParams{T}) where T <: Complex
@@ -210,8 +202,10 @@ end
 
 function iteratedUpdateUDTsLeftAfter!(walker::DQMCWalker{T}, l, scheme::DQMCScheme{T}) where T
     BlUDT = udt(walker.BMats[l])
-    for i in l:scheme.M
-        walker.UDTsLeft[i] = fact_mult(BlUDT, walker.UDTsLeft[i])
+    if l == 1
+        walker.UDTsLeft[1] = BlUDT
+    else
+        walker.UDTsLeft[l] = fact_mult(BlUDT, walker.UDTsLeft[l-1])
     end
 end
 
@@ -228,12 +222,6 @@ function sumOfEtaCalc(walker::DQMCWalker{T}, params::AuxFieldUpdaterParams{T}) w
 end
 
 function walkerMarkovMove!(walker::DQMCWalker{T}, params::AuxFieldUpdaterParams{T}, scheme::DQMCScheme{T}) where T
-
-    udtTemp = udt!(Matrix{T}(I, scheme.Nsite, scheme.Nsite))
-    for i in 1:scheme.M
-        walker.UDTsLeft[i] = deepcopy(udtTemp)
-    end
-
     for l in 1:scheme.M
         # sVec = deepcopy(walker.HSFieldConfig[:, l])
 
@@ -247,7 +235,8 @@ function walkerMarkovMove!(walker::DQMCWalker{T}, params::AuxFieldUpdaterParams{
             # detNew, detOld = AcceptRatioRaw(walker.BMats, BMatNew, l)
             # rRaw = detNew / detOld * exp(-0.5im * etaDiffCalc(sNew, sOld, params))
             r, etaDiff = AcceptRatioR(walker, sOld, sNew, i, params)
-            p = (r * exp(-0.5im * etaDiff))^(scheme.Nflavor) * (params.gamma[abs(sNew)] / params.gamma[abs(sOld)])
+#             p = (r * exp(-0.5im * etaDiff))^(scheme.Nflavor) * (params.gamma[abs(sNew)] / params.gamma[abs(sOld)])
+            p = (r)^(scheme.Nflavor) * (params.gamma[abs(sNew)] / params.gamma[abs(sOld)])
             # println("prob: ", p)
             if abs(p) >= 1.0 || rand() < abs(p)
                 iteratedUpdateGlNewConfig!(walker, r, i, etaDiff, l, scheme, sNew, sOld)
@@ -257,6 +246,16 @@ function walkerMarkovMove!(walker::DQMCWalker{T}, params::AuxFieldUpdaterParams{
         iteratedUpdateUDTsLeftAfter!(walker, l, scheme)
         iteratedUpdateGlToNextTime!(walker, l, params, scheme)
     end
+    walker.individualWeight = individualSpinDet(walker, params)
+
 end
 
+function individualSpinDet(walker::DQMCWalker{T}, params::AuxFieldUpdaterParams{T}) where T
+    etasum = sumOfEtaCalc(walker, params)
+    U, D, V = walker.UDTsRight[1]
+    m = U'/ V
+    m[diagind(m)] .+= D
+    detIPlusBs = det(U) * det(m) * det(V)
+    return exp(-0.5im*etasum) * detIPlusBs
+end
 # end

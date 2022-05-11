@@ -1,0 +1,33 @@
+# system size <nx> * <ny> with <norbits> per site
+# <ntype> types of kinetic terms weighted by scaling factors
+# <orbits> orbA => orbB <dsite> (dx,dy) <value> v
+# represents a term $v c^{\dagger}_{x+dx,y+dy,orbB}c_{x,y,orbA} + h.c.$
+
+nOrbits: 2
+ntype: 2
+
+terms:
+  # honeycomb nearest neighbor hopping:
+  - scaling factor: 1.0
+    nterm: 3
+    hoppings:
+    - orbits: 1 => 0
+      dsite: (0 , 0)
+      value: -1.0 + 0.0im
+    - orbits: 1 => 0
+      dsite: (0 , 1)
+      value: -1.0 + 0.0im
+    - orbits: 1 => 0
+      dsite: (1 , 0)
+      value: -1.0 + 0.0im
+
+  # chemical potential:
+  - scaling factor: 0.0
+    nterm: 1
+    hoppings:
+    - orbits: 0 => 0
+      dsite: (0 , 0)
+      value: 1.0 + 0.0im
+    - orbits: 1 => 1
+      dsite: (0 , 0)
+      value: 1.0 + 0.0im

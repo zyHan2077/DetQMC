@@ -16,14 +16,14 @@ U = 4.0
 M = Int((β+0.01) ÷ Δτ)
 # println(M)
 
-thermalizationTime = 200
-iterationTime = 1000
+thermalizationTime = 1
+iterationTime = 10
 # samplesPerIter = 20
 
 Nsites, Kinectic = BuildKinecticFromYAML("1dRingHamiltonian.yml", nx, ny, dtype)
 schemeSU2N = DQMCScheme{dtype}(Nsites, nflavor, M, Δτ, Kinectic)
 paramsAux = AuxFieldUpdaterParams{dtype}(U, schemeSU2N)
-x = initializeWalker(schemeSU2N, paramsAux);
+x = initializeWalker(schemeSU2N, paramsAux, 30);
 
 for i in 1:thermalizationTime
     walkerMarkovMove!(x, paramsAux, schemeSU2N)
